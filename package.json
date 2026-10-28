@@ -1,0 +1,35 @@
+{
+  "name": "vm-dashboard-demo",
+  "version": "0.1.0",
+  "description": "Real-time admin UI for thousands of virtual machines: WebSocket events, batching, snapshot/stream reconciliation and a virtualized table in React.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"npm:server\" \"npm:web\"",
+    "server": "node server/index.js",
+    "web": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@reduxjs/toolkit": "2.2.7",
+    "@tanstack/react-table": "8.20.5",
+    "@tanstack/react-virtual": "3.10.7",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-redux": "9.1.2"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.5",
+    "@types/react-dom": "18.3.0",
+    "@vitejs/plugin-react": "4.3.1",
+    "concurrently": "9.0.1",
+    "mock-socket": "9.3.1",
+    "typescript": "5.5.4",
+    "vite": "5.4.21",
+    "vitest": "2.1.9",
+    "ws": "8.18.0"
+  }
+}
