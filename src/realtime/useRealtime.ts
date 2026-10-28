@@ -9,6 +9,9 @@ import { createEventBuffer } from './eventBuffer';
 import { eventsReceived, getEventKey, isRealtimeEvent, mergeEvents, type RealtimeEvent } from './events';
 import { createSocketClient } from './socketClient';
 
+const PING_INTERVAL_MS = 5_000;
+const PONG_TIMEOUT_MS = 3_000;
+
 function getSocketUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
   return `${protocol}://${window.location.host}/ws`;
@@ -29,6 +32,8 @@ export function useRealtime({ batching }: { batching: boolean }) {
 
     const client = createSocketClient({
       url: getSocketUrl(),
+      pingIntervalMs: PING_INTERVAL_MS,
+      pongTimeoutMs: PONG_TIMEOUT_MS,
       onMessage: (data) => {
         if (!isRealtimeEvent(data)) return;
         metrics.eventsReceived += 1;

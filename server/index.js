@@ -19,13 +19,14 @@ const ACTIONS = new Set(['start', 'stop', 'reboot']);
 const random = createRandom(42);
 const vms = createInventory(VM_COUNT, random);
 const wss = new WebSocketServer({ noServer: true });
+const stalledClients = new WeakSet();
 let seq = 0;
 
 function emit(event) {
   const message = JSON.stringify({ ...event, seq: ++seq });
 
   for (const client of wss.clients) {
-    if (client.readyState === WebSocket.OPEN) client.send(message);
+    if (client.readyState === WebSocket.OPEN && !stalledClients.has(client)) client.send(message);
   }
 }
 
@@ -83,6 +84,11 @@ async function handleRequest(req, res) {
     return sendJson(res, 200, { dropped });
   }
 
+  if (req.method === 'POST' && pathname === '/api/debug/stall-connections') {
+    for (const client of wss.clients) stalledClients.add(client);
+    return sendJson(res, 200, { stalled: wss.clients.size });
+  }
+
   return sendJson(res, 404, { error: 'Not found' });
 }
 
@@ -104,6 +110,8 @@ server.on('upgrade', (req, socket, head) => {
 
 wss.on('connection', (ws) => {
   ws.on('message', (raw) => {
+    if (stalledClients.has(ws)) return;
+
     let message;
     try {
       message = JSON.parse(raw.toString());

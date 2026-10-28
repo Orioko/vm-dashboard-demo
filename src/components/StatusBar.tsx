@@ -42,8 +42,8 @@ export function StatusBar({ batching, onBatchingChange }: StatusBarProps) {
   const status = useAppSelector((state) => state.connection.status);
   const reconnects = useAppSelector((state) => state.connection.reconnects);
 
-  const dropConnection = () => {
-    fetch('/api/debug/drop-connections', { method: 'POST' }).catch(() => undefined);
+  const simulate = (failure: 'drop-connections' | 'stall-connections') => {
+    fetch(`/api/debug/${failure}`, { method: 'POST' }).catch(() => undefined);
   };
 
   return (
@@ -77,9 +77,15 @@ export function StatusBar({ batching, onBatchingChange }: StatusBarProps) {
           <input type="checkbox" checked={batching} onChange={(event) => onBatchingChange(event.target.checked)} />
           Batch events per frame
         </label>
-        <button type="button" className="link-button" onClick={dropConnection}>
-          Simulate disconnect
-        </button>
+        <span className="statusbar__simulate">
+          Simulate:
+          <button type="button" className="link-button" onClick={() => simulate('drop-connections')}>
+            disconnect
+          </button>
+          <button type="button" className="link-button" onClick={() => simulate('stall-connections')}>
+            stalled connection
+          </button>
+        </span>
       </div>
     </footer>
   );

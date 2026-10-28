@@ -123,6 +123,42 @@ describe('createSocketClient', () => {
     client.close();
   });
 
+  it('drops a connection that stops answering and reconnects', async () => {
+    let connections = 0;
+    server.on('connection', () => {
+      connections += 1;
+    });
+
+    const { client, opens, statuses } = setup({ pongTimeoutMs: 500 });
+    client.connect();
+    await vi.advanceTimersByTimeAsync(50);
+
+    await vi.advanceTimersByTimeAsync(1000 + 450);
+    expect(connections).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(200);
+    expect(connections).toBe(2);
+    expect(statuses).toEqual(['connecting', 'open', 'reconnecting', 'reconnecting', 'open']);
+    expect(opens).toEqual([false, true]);
+    client.close();
+  });
+
+  it('stays connected while the server answers pings, and does not pass pongs on', async () => {
+    let connections = 0;
+    server.on('connection', (socket) => {
+      connections += 1;
+      socket.on('message', () => socket.send(JSON.stringify({ type: 'pong' })));
+    });
+
+    const { client, messages } = setup({ pongTimeoutMs: 500 });
+    client.connect();
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(connections).toBe(1);
+    expect(messages).toEqual([]);
+    client.close();
+  });
+
   it('does not reconnect after close()', async () => {
     let connections = 0;
     server.on('connection', () => {

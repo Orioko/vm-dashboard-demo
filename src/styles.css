@@ -784,6 +784,10 @@ select {
   margin-left: auto;
 }
 
+.statusbar__simulate .link-button {
+  margin-left: 6px;
+}
+
 .statusbar__switch {
   display: inline-flex;
   align-items: center;

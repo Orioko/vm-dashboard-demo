@@ -6,6 +6,7 @@ export interface SocketClientOptions {
   onOpen?: (info: { isReconnect: boolean }) => void;
   onStatusChange?: (status: ConnectionStatus) => void;
   pingIntervalMs?: number;
+  pongTimeoutMs?: number;
   baseDelayMs?: number;
   maxDelayMs?: number;
   random?: () => number;
@@ -18,11 +19,15 @@ export interface SocketClient {
 }
 
 const OPEN = 1;
+const HEARTBEAT_TIMEOUT_CODE = 4000;
 
 export function getReconnectDelay(attempt: number, baseDelayMs: number, maxDelayMs: number, random: () => number) {
   const ceiling = Math.min(maxDelayMs, baseDelayMs * 2 ** attempt);
   return Math.round(ceiling / 2 + (random() * ceiling) / 2);
 }
+
+const isPong = (data: unknown) =>
+  typeof data === 'object' && data !== null && (data as { type?: unknown }).type === 'pong';
 
 export function createSocketClient({
   url,
@@ -30,6 +35,7 @@ export function createSocketClient({
   onOpen,
   onStatusChange,
   pingIntervalMs = 30_000,
+  pongTimeoutMs = 10_000,
   baseDelayMs = 500,
   maxDelayMs = 15_000,
   random = Math.random,
@@ -40,6 +46,7 @@ export function createSocketClient({
   let hasBeenOpen = false;
   let stopped = true;
   let pingTimer: ReturnType<typeof setInterval> | undefined;
+  let pongTimer: ReturnType<typeof setTimeout> | undefined;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
   const detach = (target: WebSocket) => {
@@ -49,9 +56,23 @@ export function createSocketClient({
     target.onerror = null;
   };
 
+  const stopHeartbeat = () => {
+    clearInterval(pingTimer);
+    clearTimeout(pongTimer);
+    pongTimer = undefined;
+  };
+
   const scheduleReconnect = () => {
     onStatusChange?.('reconnecting');
     reconnectTimer = setTimeout(open, getReconnectDelay(attempt++, baseDelayMs, maxDelayMs, random));
+  };
+
+  const dropUnresponsive = (target: WebSocket) => {
+    stopHeartbeat();
+    detach(target);
+    target.close(HEARTBEAT_TIMEOUT_CODE, 'heartbeat timeout');
+    socket = null;
+    if (!stopped) scheduleReconnect();
   };
 
   function open() {
@@ -67,25 +88,30 @@ export function createSocketClient({
       onStatusChange?.('open');
 
       pingTimer = setInterval(() => {
-        if (current.readyState === OPEN) current.send(JSON.stringify({ type: 'ping' }));
+        if (current.readyState !== OPEN) return;
+        current.send(JSON.stringify({ type: 'ping' }));
+        pongTimer ??= setTimeout(() => dropUnresponsive(current), pongTimeoutMs);
       }, pingIntervalMs);
 
       onOpen?.({ isReconnect });
     };
 
     current.onmessage = (event: MessageEvent) => {
+      clearTimeout(pongTimer);
+      pongTimer = undefined;
+
       let data: unknown;
       try {
         data = JSON.parse(String(event.data));
       } catch {
         return;
       }
-      onMessage(data);
+      if (!isPong(data)) onMessage(data);
     };
 
     current.onclose = () => {
       detach(current);
-      clearInterval(pingTimer);
+      stopHeartbeat();
       socket = null;
       if (!stopped) scheduleReconnect();
     };
@@ -99,7 +125,7 @@ export function createSocketClient({
     },
     close() {
       stopped = true;
-      clearInterval(pingTimer);
+      stopHeartbeat();
       clearTimeout(reconnectTimer);
 
       if (socket) {
