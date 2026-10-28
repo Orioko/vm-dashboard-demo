@@ -10,6 +10,7 @@ import {
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
+  type KeyboardEvent,
   type ReactNode,
   useCallback,
   useDeferredValue,
@@ -108,6 +109,7 @@ export function VmTable({ view, onViewChange }: VmTableProps) {
   const { scope, stateFilter } = view;
   const deferredQuery = useDeferredValue(view.query);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [activeIndex, setActiveIndex] = useState(0);
   const [menu, setMenu] = useState<MenuState | null>(null);
 
   const sorting = useMemo<SortingState>(() => [{ id: view.sort.id, desc: view.sort.desc }], [view.sort]);
@@ -146,6 +148,7 @@ export function VmTable({ view, onViewChange }: VmTableProps) {
   });
 
   const rows = table.getRowModel().rows;
+  const focusableIndex = Math.min(activeIndex, rows.length - 1);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const virtualizer = useVirtualizer({
@@ -154,12 +157,33 @@ export function VmTable({ view, onViewChange }: VmTableProps) {
     estimateSize: () => ROW_HEIGHT,
     overscan: 12,
     scrollMargin: HEADER_HEIGHT,
+    scrollPaddingStart: HEADER_HEIGHT,
     getItemKey: (index) => rows[index].id,
   });
+
+  const rowElement = (index: number) =>
+    scrollRef.current?.querySelector<HTMLElement>(`[role="row"][data-row-index="${index}"]`) ?? null;
+
+  const focusRow = (index: number) => {
+    setActiveIndex(index);
+    virtualizer.scrollToIndex(index);
+
+    let attempts = 0;
+    const tryFocus = () => {
+      const active = document.activeElement;
+      if (active && active !== document.body && !scrollRef.current?.contains(active)) return;
+
+      const element = rowElement(index);
+      if (element) element.focus({ preventScroll: true });
+      else if (attempts++ < 5) requestAnimationFrame(tryFocus);
+    };
+    requestAnimationFrame(tryFocus);
+  };
 
   const scopeKey = scopeToParam(scope);
   useEffect(() => {
     setRowSelection({});
+    setActiveIndex(0);
     setMenu(null);
     scrollRef.current?.scrollTo({ top: 0 });
   }, [scopeKey]);
@@ -239,7 +263,90 @@ export function VmTable({ view, onViewChange }: VmTableProps) {
     setMenu({ x, y, label: 'Virtual machine actions', items: build(targets) });
   }, []);
 
-  const closeMenu = useCallback(() => setMenu(null), []);
+  const activeIndexRef = useRef(activeIndex);
+  activeIndexRef.current = activeIndex;
+
+  const closeMenu = useCallback(({ restoreFocus }: { restoreFocus: boolean }) => {
+    setMenu(null);
+    if (restoreFocus) {
+      requestAnimationFrame(() =>
+        scrollRef.current
+          ?.querySelector<HTMLElement>(`[role="row"][data-row-index="${activeIndexRef.current}"]`)
+          ?.focus({ preventScroll: true }),
+      );
+    }
+  }, []);
+
+  const onGridKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.getAttribute('role') !== 'row' || rows.length === 0) return;
+
+    const current = focusableIndex;
+    const visibleRows = Math.floor(((scrollRef.current?.clientHeight ?? 0) - HEADER_HEIGHT) / ROW_HEIGHT);
+    const pageSize = Math.max(1, visibleRows - 1);
+    let next: number;
+
+    switch (event.key) {
+      case 'ArrowDown':
+        next = current + 1;
+        break;
+      case 'ArrowUp':
+        next = current - 1;
+        break;
+      case 'PageDown':
+        next = current + pageSize;
+        break;
+      case 'PageUp':
+        next = current - pageSize;
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = rows.length - 1;
+        break;
+      case ' ':
+        event.preventDefault();
+        toggleRow(rows[current].id);
+        return;
+      case 'Enter':
+        event.preventDefault();
+        selectOnly(rows[current].id);
+        return;
+      case 'Escape':
+        setRowSelection({});
+        return;
+      case 'a':
+      case 'A':
+        if (!event.ctrlKey && !event.metaKey) return;
+        event.preventDefault();
+        selectAllVisible();
+        return;
+      case 'F10':
+      case 'ContextMenu': {
+        if (event.key === 'F10' && !event.shiftKey) return;
+        event.preventDefault();
+        const rect = target.getBoundingClientRect();
+        openMenu(rows[current].id, rect.left + 48, rect.bottom);
+        return;
+      }
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    next = Math.max(0, Math.min(rows.length - 1, next));
+
+    if (event.shiftKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      const from = rows[current].id;
+      const to = rows[next].id;
+      setRowSelection((previous) => ({ ...previous, [from]: true, [to]: true }));
+    }
+
+    focusRow(next);
+  };
+
+  const onFocusRow = useCallback((index: number) => setActiveIndex(index), []);
 
   let emptyMessage: string | null = null;
   if (rows.length === 0) {
@@ -303,7 +410,8 @@ export function VmTable({ view, onViewChange }: VmTableProps) {
         aria-labelledby="vm-table-title"
         aria-rowcount={rows.length + 1}
         aria-multiselectable
-        onScroll={menu ? closeMenu : undefined}
+        onKeyDown={onGridKeyDown}
+        onScroll={menu ? () => closeMenu({ restoreFocus: false }) : undefined}
       >
         <div role="rowgroup" className="grid__head" style={{ height: HEADER_HEIGHT }}>
           <div role="row" aria-rowindex={1} className="grid__row grid__row--head">
@@ -350,8 +458,10 @@ export function VmTable({ view, onViewChange }: VmTableProps) {
                 offset={item.start - HEADER_HEIGHT}
                 selected={rowSelection[id] === true}
                 requested={requestedVmIds[id] === true}
+                focusable={item.index === focusableIndex}
                 onToggle={toggleRow}
                 onSelectOnly={selectOnly}
+                onFocusRow={onFocusRow}
                 onOpenMenu={openMenu}
               />
             );

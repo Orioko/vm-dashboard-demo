@@ -11,8 +11,10 @@ interface VmRowProps {
   offset: number;
   selected: boolean;
   requested: boolean;
+  focusable: boolean;
   onToggle: (id: string) => void;
   onSelectOnly: (id: string) => void;
+  onFocusRow: (index: number) => void;
   onOpenMenu: (id: string, x: number, y: number) => void;
 }
 
@@ -24,8 +26,10 @@ export const VmRow = memo(function VmRow({
   offset,
   selected,
   requested,
+  focusable,
   onToggle,
   onSelectOnly,
+  onFocusRow,
   onOpenMenu,
 }: VmRowProps) {
   const vm = useAppSelector((state) => state.vms.entities[id]);
@@ -41,9 +45,12 @@ export const VmRow = memo(function VmRow({
       role="row"
       aria-rowindex={index + 2}
       aria-selected={selected}
+      tabIndex={focusable ? 0 : -1}
+      data-row-index={index}
       className={`grid__row${selected ? ' grid__row--selected' : ''}`}
       style={{ transform: `translateY(${offset}px)` }}
       onClick={() => onSelectOnly(id)}
+      onFocus={() => onFocusRow(index)}
       onContextMenu={(event) => {
         event.preventDefault();
         onOpenMenu(id, event.clientX, event.clientY);
@@ -52,6 +59,7 @@ export const VmRow = memo(function VmRow({
       <div role="gridcell" className="grid__cell grid__cell--check">
         <input
           type="checkbox"
+          tabIndex={-1}
           checked={selected}
           aria-label={`Select ${vm.name}`}
           onClick={(event) => event.stopPropagation()}
