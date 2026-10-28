@@ -21,9 +21,15 @@ const vms = createInventory(VM_COUNT, random);
 const wss = new WebSocketServer({ noServer: true });
 const stalledClients = new WeakSet();
 let seq = 0;
+let eventsToDrop = 0;
 
 function emit(event) {
   const message = JSON.stringify({ ...event, seq: ++seq });
+
+  if (eventsToDrop > 0) {
+    eventsToDrop -= 1;
+    return;
+  }
 
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN && !stalledClients.has(client)) client.send(message);
@@ -87,6 +93,11 @@ async function handleRequest(req, res) {
   if (req.method === 'POST' && pathname === '/api/debug/stall-connections') {
     for (const client of wss.clients) stalledClients.add(client);
     return sendJson(res, 200, { stalled: wss.clients.size });
+  }
+
+  if (req.method === 'POST' && pathname === '/api/debug/drop-events') {
+    eventsToDrop += 25;
+    return sendJson(res, 200, { dropping: eventsToDrop });
   }
 
   return sendJson(res, 404, { error: 'Not found' });

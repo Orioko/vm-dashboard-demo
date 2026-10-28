@@ -41,8 +41,9 @@ export function StatusBar({ batching, onBatchingChange }: StatusBarProps) {
   const rates = useRates();
   const status = useAppSelector((state) => state.connection.status);
   const reconnects = useAppSelector((state) => state.connection.reconnects);
+  const gapResyncs = useAppSelector((state) => state.connection.gapResyncs);
 
-  const simulate = (failure: 'drop-connections' | 'stall-connections') => {
+  const simulate = (failure: 'drop-connections' | 'stall-connections' | 'drop-events') => {
     fetch(`/api/debug/${failure}`, { method: 'POST' }).catch(() => undefined);
   };
 
@@ -70,6 +71,10 @@ export function StatusBar({ batching, onBatchingChange }: StatusBarProps) {
           <dt>Reconnects</dt>
           <dd>{reconnects}</dd>
         </div>
+        <div>
+          <dt>Gap resyncs</dt>
+          <dd>{gapResyncs}</dd>
+        </div>
       </dl>
 
       <div className="statusbar__controls">
@@ -84,6 +89,9 @@ export function StatusBar({ batching, onBatchingChange }: StatusBarProps) {
           </button>
           <button type="button" className="link-button" onClick={() => simulate('stall-connections')}>
             stalled connection
+          </button>
+          <button type="button" className="link-button" onClick={() => simulate('drop-events')}>
+            lost events
           </button>
         </span>
       </div>
