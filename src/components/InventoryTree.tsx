@@ -1,13 +1,8 @@
-import { type ReactNode, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useVmList } from '../hooks/useVmList';
-import type { Vm } from '../types';
+import type { InventoryScope, Vm } from '../types';
 import { AlertIcon, AllVmsIcon, ChevronIcon, ClusterIcon, NodeIcon } from './Icons';
-
-export type InventoryScope =
-  | { kind: 'all' }
-  | { kind: 'cluster'; name: string }
-  | { kind: 'node'; cluster: string; name: string };
 
 interface Summary {
   name: string;
@@ -60,8 +55,18 @@ interface TreeRowProps {
 }
 
 function TreeRow({ level, icon, label, summary, selected, onSelect, expanded, onToggle }: TreeRowProps) {
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (selected) rowRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [selected]);
+
   return (
-    <div className={`tree-row${selected ? ' tree-row--selected' : ''}`} style={{ paddingLeft: 8 + level * 16 }}>
+    <div
+      ref={rowRef}
+      className={`tree-row${selected ? ' tree-row--selected' : ''}`}
+      style={{ paddingLeft: 8 + level * 16 }}
+    >
       {onToggle ? (
         <button
           type="button"

@@ -16,6 +16,11 @@ export interface Vm {
 
 export type VmAction = 'start' | 'stop' | 'reboot';
 
+export type InventoryScope =
+  | { kind: 'all' }
+  | { kind: 'cluster'; name: string }
+  | { kind: 'node'; cluster: string; name: string };
+
 export type TaskStatus = 'running' | 'succeeded' | 'failed';
 
 export interface Task {

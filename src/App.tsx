@@ -1,15 +1,16 @@
 import { useState } from 'react';
 
 import { AppAlerts } from './components/AppAlerts';
-import { type InventoryScope, InventoryTree } from './components/InventoryTree';
+import { InventoryTree } from './components/InventoryTree';
 import { StatusBar } from './components/StatusBar';
 import { TasksPanel } from './components/TasksPanel';
 import { VmTable } from './components/VmTable';
+import { useViewState } from './hooks/useViewState';
 import { useRealtime } from './realtime/useRealtime';
 
 export function App() {
   const [batching, setBatching] = useState(true);
-  const [scope, setScope] = useState<InventoryScope>({ kind: 'all' });
+  const [view, updateView] = useViewState();
   useRealtime({ batching });
 
   return (
@@ -28,9 +29,9 @@ export function App() {
       <AppAlerts />
 
       <div className="workspace">
-        <InventoryTree scope={scope} onScopeChange={setScope} />
+        <InventoryTree scope={view.scope} onScopeChange={(scope) => updateView({ scope }, 'push')} />
         <main className="content">
-          <VmTable scope={scope} />
+          <VmTable view={view} onViewChange={updateView} />
         </main>
       </div>
 

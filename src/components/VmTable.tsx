@@ -3,34 +3,51 @@ import {
   flexRender,
   getCoreRowModel,
   getSortedRowModel,
+  type OnChangeFn,
   type RowSelectionState,
   type SortingState,
   useReactTable,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { type ReactNode, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
+import type { HistoryMode } from '../hooks/useViewState';
 import { useVmList } from '../hooks/useVmList';
 import { useAppDispatch, useAppSelector } from '../store';
 import { runVmAction } from '../store/tasksSlice';
-import type { Vm, VmAction, VmStatus } from '../types';
+import { type InventoryScope, type Vm, type VmAction } from '../types';
+import {
+  scopeToParam,
+  SORTABLE_COLUMNS,
+  type SortableColumn,
+  STATE_FILTERS,
+  type StateFilter,
+  type ViewState,
+} from '../viewState';
 import { PowerIcon, RestartIcon, StopIcon } from './Icons';
-import type { InventoryScope } from './InventoryTree';
 import { VmRow } from './VmRow';
 
 const ROW_HEIGHT = 32;
 const HEADER_HEIGHT = 32;
 const MAX_VMS_PER_ACTION = 1000;
 const METRIC_SORT_REFRESH_MS = 1000;
-const METRIC_COLUMNS = new Set(['cpuUsage', 'memoryUsage']);
+const METRIC_COLUMNS = new Set<string>(['cpuUsage', 'memoryUsage']);
 
-const STATE_FILTERS: { value: 'all' | VmStatus; label: string }[] = [
-  { value: 'all', label: 'All states' },
-  { value: 'running', label: 'Powered on' },
-  { value: 'stopped', label: 'Powered off' },
-  { value: 'paused', label: 'Suspended' },
-  { value: 'error', label: 'Error' },
-];
+const STATE_FILTER_LABELS: Record<StateFilter, string> = {
+  all: 'All states',
+  running: 'Powered on',
+  stopped: 'Powered off',
+  paused: 'Suspended',
+  error: 'Error',
+};
 
 const ACTIONS: { action: VmAction; label: string; icon: ReactNode }[] = [
   { action: 'start', label: 'Power on', icon: <PowerIcon /> },
@@ -38,7 +55,7 @@ const ACTIONS: { action: VmAction; label: string; icon: ReactNode }[] = [
   { action: 'reboot', label: 'Restart', icon: <RestartIcon /> },
 ];
 
-const columns: ColumnDef<Vm>[] = [
+const columns: (ColumnDef<Vm> & { id: SortableColumn })[] = [
   { id: 'name', accessorKey: 'name', header: 'Name' },
   { id: 'status', accessorKey: 'status', header: 'State' },
   { id: 'host', accessorKey: 'host', header: 'Node' },
@@ -49,6 +66,8 @@ const columns: ColumnDef<Vm>[] = [
 ];
 
 const formatCount = (value: number) => value.toLocaleString('en-US');
+
+const isSortable = (id: string): id is SortableColumn => (SORTABLE_COLUMNS as readonly string[]).includes(id);
 
 function matchesScope(vm: Vm, scope: InventoryScope) {
   if (scope.kind === 'cluster') return vm.cluster === scope.name;
@@ -62,19 +81,23 @@ function scopeTitle(scope: InventoryScope) {
   return 'All virtual machines';
 }
 
-export function VmTable({ scope }: { scope: InventoryScope }) {
+interface VmTableProps {
+  view: ViewState;
+  onViewChange: (patch: Partial<ViewState>, mode?: HistoryMode) => void;
+}
+
+export function VmTable({ view, onViewChange }: VmTableProps) {
   const dispatch = useAppDispatch();
   const requestedVmIds = useAppSelector((state) => state.tasks.requestedVmIds);
   const loadStatus = useAppSelector((state) => state.vms.loadStatus);
   const loadError = useAppSelector((state) => state.vms.error);
 
-  const [query, setQuery] = useState('');
-  const deferredQuery = useDeferredValue(query);
-  const [stateFilter, setStateFilter] = useState<'all' | VmStatus>('all');
-  const [sorting, setSorting] = useState<SortingState>([{ id: 'name', desc: false }]);
+  const { scope, stateFilter } = view;
+  const deferredQuery = useDeferredValue(view.query);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
-  const sortsByMetric = METRIC_COLUMNS.has(sorting[0]?.id ?? '');
+  const sorting = useMemo<SortingState>(() => [{ id: view.sort.id, desc: view.sort.desc }], [view.sort]);
+  const sortsByMetric = METRIC_COLUMNS.has(view.sort.id);
   const vms = useVmList(sortsByMetric ? METRIC_SORT_REFRESH_MS : null);
 
   const scoped = useMemo(() => vms.filter((vm) => matchesScope(vm, scope)), [vms, scope]);
@@ -90,11 +113,17 @@ export function VmTable({ scope }: { scope: InventoryScope }) {
     );
   }, [scoped, deferredQuery, stateFilter]);
 
+  const onSortingChange: OnChangeFn<SortingState> = (updater) => {
+    const next = typeof updater === 'function' ? updater(sorting) : updater;
+    const first = next[0];
+    if (first && isSortable(first.id)) onViewChange({ sort: { id: first.id, desc: first.desc } });
+  };
+
   const table = useReactTable({
     data: filtered,
     columns,
     state: { sorting, rowSelection },
-    onSortingChange: setSorting,
+    onSortingChange,
     onRowSelectionChange: setRowSelection,
     getRowId: (vm) => vm.id,
     getCoreRowModel: getCoreRowModel(),
@@ -114,6 +143,12 @@ export function VmTable({ scope }: { scope: InventoryScope }) {
     getItemKey: (index) => rows[index].id,
   });
 
+  const scopeKey = scopeToParam(scope);
+  useEffect(() => {
+    setRowSelection({});
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [scopeKey]);
+
   const toggleRow = useCallback((id: string) => {
     setRowSelection((previous) => {
       const next = { ...previous };
@@ -125,18 +160,15 @@ export function VmTable({ scope }: { scope: InventoryScope }) {
 
   const selectOnly = useCallback((id: string) => setRowSelection({ [id]: true }), []);
 
-  useEffect(() => setRowSelection({}), [scope]);
-
   const selectedIds = useMemo(() => rows.filter((row) => rowSelection[row.id]).map((row) => row.id), [rows, rowSelection]);
   const allVisibleSelected = rows.length > 0 && selectedIds.length === rows.length;
   const tooManySelected = selectedIds.length > MAX_VMS_PER_ACTION;
 
-  const toggleAllVisible = () => {
-    setRowSelection(allVisibleSelected ? {} : Object.fromEntries(rows.map((row) => [row.id, true])));
-  };
+  const selectAllVisible = () => setRowSelection(Object.fromEntries(rows.map((row) => [row.id, true])));
+  const toggleAllVisible = () => (allVisibleSelected ? setRowSelection({}) : selectAllVisible());
 
-  const runAction = (action: VmAction) => {
-    dispatch(runVmAction({ vmIds: selectedIds, action }));
+  const runAction = (vmIds: string[], action: VmAction) => {
+    dispatch(runVmAction({ vmIds, action }));
   };
 
   let emptyMessage: string | null = null;
@@ -163,7 +195,7 @@ export function VmTable({ scope }: { scope: InventoryScope }) {
               type="button"
               className="tool-button"
               disabled={selectedIds.length === 0 || tooManySelected}
-              onClick={() => runAction(action)}
+              onClick={() => runAction(selectedIds, action)}
             >
               {icon}
               {label}
@@ -175,11 +207,11 @@ export function VmTable({ scope }: { scope: InventoryScope }) {
             className="field"
             aria-label="Filter by state"
             value={stateFilter}
-            onChange={(event) => setStateFilter(event.target.value as 'all' | VmStatus)}
+            onChange={(event) => onViewChange({ stateFilter: event.target.value as StateFilter })}
           >
-            {STATE_FILTERS.map(({ value, label }) => (
+            {STATE_FILTERS.map((value) => (
               <option key={value} value={value}>
-                {label}
+                {STATE_FILTER_LABELS[value]}
               </option>
             ))}
           </select>
@@ -188,8 +220,8 @@ export function VmTable({ scope }: { scope: InventoryScope }) {
             className="field field--search"
             placeholder="Filter by name, node or IP"
             aria-label="Filter by name, node or IP address"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            value={view.query}
+            onChange={(event) => onViewChange({ query: event.target.value })}
           />
         </div>
       </div>
