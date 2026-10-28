@@ -1,15 +1,26 @@
 export type Scheduler = (flush: () => void) => () => void;
 
-const HIDDEN_TAB_FLUSH_MS = 250;
+const MAX_FLUSH_DELAY_MS = 100;
 
 export const frameScheduler: Scheduler = (flush) => {
-  if (typeof document === 'undefined' || document.hidden) {
-    const id = setTimeout(flush, HIDDEN_TAB_FLUSH_MS);
-    return () => clearTimeout(id);
-  }
+  let done = false;
+  let frame = 0;
 
-  const id = requestAnimationFrame(flush);
-  return () => cancelAnimationFrame(id);
+  const cancel = () => {
+    done = true;
+    if (frame) cancelAnimationFrame(frame);
+    clearTimeout(timer);
+  };
+  const run = () => {
+    if (done) return;
+    cancel();
+    flush();
+  };
+
+  const timer = setTimeout(run, MAX_FLUSH_DELAY_MS);
+  if (typeof requestAnimationFrame === 'function') frame = requestAnimationFrame(run);
+
+  return cancel;
 };
 
 export interface EventBufferOptions<T> {

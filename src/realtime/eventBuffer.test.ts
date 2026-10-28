@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createEventBuffer, type Scheduler } from './eventBuffer';
+import { createEventBuffer, frameScheduler, type Scheduler } from './eventBuffer';
 import { getEventKey, mergeEvents, type RealtimeEvent } from './events';
 
 function createManualScheduler() {
@@ -83,6 +83,39 @@ describe('createEventBuffer', () => {
 
     expect(onFlush).toHaveBeenCalledTimes(1);
     expect(onFlush).toHaveBeenCalledWith([1]);
+  });
+
+  it('frameScheduler still flushes when animation frames are throttled', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('requestAnimationFrame', () => 1);
+    vi.stubGlobal('cancelAnimationFrame', () => undefined);
+
+    const flush = vi.fn();
+    frameScheduler(flush);
+    vi.advanceTimersByTime(100);
+
+    expect(flush).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('frameScheduler flushes once even if both the frame and the timer fire', () => {
+    vi.useFakeTimers();
+    let frameCallback: (() => void) | undefined;
+    vi.stubGlobal('requestAnimationFrame', (callback: () => void) => {
+      frameCallback = callback;
+      return 1;
+    });
+    vi.stubGlobal('cancelAnimationFrame', () => undefined);
+
+    const flush = vi.fn();
+    frameScheduler(flush);
+    frameCallback?.();
+    vi.advanceTimersByTime(100);
+
+    expect(flush).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it('dispose() drops queued events', () => {
