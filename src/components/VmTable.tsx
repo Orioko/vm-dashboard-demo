@@ -21,9 +21,9 @@ import {
 
 import type { HistoryMode } from '../hooks/useViewState';
 import { useVmList } from '../hooks/useVmList';
-import { useAppDispatch, useAppSelector } from '../store';
+import { useAppDispatch, useAppSelector, useAppStore } from '../store';
 import { runVmAction } from '../store/tasksSlice';
-import { type InventoryScope, type Vm, type VmAction } from '../types';
+import { ALLOWED_ACTIONS, type InventoryScope, type Vm, type VmAction } from '../types';
 import {
   scopeToParam,
   SORTABLE_COLUMNS,
@@ -32,6 +32,7 @@ import {
   type StateFilter,
   type ViewState,
 } from '../viewState';
+import { ContextMenu, type MenuItem } from './ContextMenu';
 import { PowerIcon, RestartIcon, StopIcon } from './Icons';
 import { VmRow } from './VmRow';
 
@@ -81,6 +82,17 @@ function scopeTitle(scope: InventoryScope) {
   return 'All virtual machines';
 }
 
+function copyToClipboard(text: string) {
+  navigator.clipboard?.writeText(text).catch(() => undefined);
+}
+
+interface MenuState {
+  x: number;
+  y: number;
+  label: string;
+  items: MenuItem[];
+}
+
 interface VmTableProps {
   view: ViewState;
   onViewChange: (patch: Partial<ViewState>, mode?: HistoryMode) => void;
@@ -88,6 +100,7 @@ interface VmTableProps {
 
 export function VmTable({ view, onViewChange }: VmTableProps) {
   const dispatch = useAppDispatch();
+  const store = useAppStore();
   const requestedVmIds = useAppSelector((state) => state.tasks.requestedVmIds);
   const loadStatus = useAppSelector((state) => state.vms.loadStatus);
   const loadError = useAppSelector((state) => state.vms.error);
@@ -95,6 +108,7 @@ export function VmTable({ view, onViewChange }: VmTableProps) {
   const { scope, stateFilter } = view;
   const deferredQuery = useDeferredValue(view.query);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [menu, setMenu] = useState<MenuState | null>(null);
 
   const sorting = useMemo<SortingState>(() => [{ id: view.sort.id, desc: view.sort.desc }], [view.sort]);
   const sortsByMetric = METRIC_COLUMNS.has(view.sort.id);
@@ -146,6 +160,7 @@ export function VmTable({ view, onViewChange }: VmTableProps) {
   const scopeKey = scopeToParam(scope);
   useEffect(() => {
     setRowSelection({});
+    setMenu(null);
     scrollRef.current?.scrollTo({ top: 0 });
   }, [scopeKey]);
 
@@ -170,6 +185,61 @@ export function VmTable({ view, onViewChange }: VmTableProps) {
   const runAction = (vmIds: string[], action: VmAction) => {
     dispatch(runVmAction({ vmIds, action }));
   };
+
+  const buildMenuItems = (targetIds: string[]): MenuItem[] => {
+    const entities = store.getState().vms.entities;
+    const targets = targetIds.map((id) => entities[id]).filter(Boolean);
+    const single = targets.length === 1 ? targets[0] : null;
+    const allows = (action: VmAction) =>
+      targets.length <= MAX_VMS_PER_ACTION &&
+      targets.some((vm) => !requestedVmIds[vm.id] && ALLOWED_ACTIONS[vm.status].includes(action));
+
+    const items: MenuItem[] = ACTIONS.map(({ action, label, icon }) => ({
+      id: action,
+      label: single ? label : `${label} (${formatCount(targets.length)})`,
+      icon,
+      disabled: !allows(action),
+      onSelect: () => runAction(targetIds, action),
+    }));
+
+    items.push(
+      {
+        id: 'copy-name',
+        label: single ? 'Copy name' : `Copy ${formatCount(targets.length)} names`,
+        separatorBefore: true,
+        onSelect: () => copyToClipboard(targets.map((vm) => vm.name).join('\n')),
+      },
+      {
+        id: 'copy-ip',
+        label: single ? 'Copy IP address' : `Copy ${formatCount(targets.length)} IP addresses`,
+        onSelect: () => copyToClipboard(targets.map((vm) => vm.ipAddress).join('\n')),
+      },
+    );
+
+    if (single && scope.kind !== 'node') {
+      items.push({
+        id: 'show-node',
+        label: `Show node ${single.host}`,
+        separatorBefore: true,
+        onSelect: () => onViewChange({ scope: { kind: 'node', cluster: single.cluster, name: single.host } }, 'push'),
+      });
+    }
+
+    return items;
+  };
+
+  const latest = useRef({ selectedIds, buildMenuItems });
+  latest.current = { selectedIds, buildMenuItems };
+
+  const openMenu = useCallback((id: string, x: number, y: number) => {
+    const { selectedIds: selected, buildMenuItems: build } = latest.current;
+    const targets = selected.includes(id) ? selected : [id];
+    if (!selected.includes(id)) setRowSelection({ [id]: true });
+
+    setMenu({ x, y, label: 'Virtual machine actions', items: build(targets) });
+  }, []);
+
+  const closeMenu = useCallback(() => setMenu(null), []);
 
   let emptyMessage: string | null = null;
   if (rows.length === 0) {
@@ -233,6 +303,7 @@ export function VmTable({ view, onViewChange }: VmTableProps) {
         aria-labelledby="vm-table-title"
         aria-rowcount={rows.length + 1}
         aria-multiselectable
+        onScroll={menu ? closeMenu : undefined}
       >
         <div role="rowgroup" className="grid__head" style={{ height: HEADER_HEIGHT }}>
           <div role="row" aria-rowindex={1} className="grid__row grid__row--head">
@@ -281,6 +352,7 @@ export function VmTable({ view, onViewChange }: VmTableProps) {
                 requested={requestedVmIds[id] === true}
                 onToggle={toggleRow}
                 onSelectOnly={selectOnly}
+                onOpenMenu={openMenu}
               />
             );
           })}
@@ -312,6 +384,8 @@ export function VmTable({ view, onViewChange }: VmTableProps) {
           {sortsByMetric && ' · order refreshes every second'}
         </span>
       </div>
+
+      {menu && <ContextMenu label={menu.label} x={menu.x} y={menu.y} items={menu.items} onClose={closeMenu} />}
     </section>
   );
 }

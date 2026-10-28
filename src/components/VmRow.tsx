@@ -13,11 +13,21 @@ interface VmRowProps {
   requested: boolean;
   onToggle: (id: string) => void;
   onSelectOnly: (id: string) => void;
+  onOpenMenu: (id: string, x: number, y: number) => void;
 }
 
 const formatMemory = (mb: number) => `of ${mb / 1024} GB`;
 
-export const VmRow = memo(function VmRow({ id, index, offset, selected, requested, onToggle, onSelectOnly }: VmRowProps) {
+export const VmRow = memo(function VmRow({
+  id,
+  index,
+  offset,
+  selected,
+  requested,
+  onToggle,
+  onSelectOnly,
+  onOpenMenu,
+}: VmRowProps) {
   const vm = useAppSelector((state) => state.vms.entities[id]);
 
   useEffect(() => {
@@ -34,6 +44,10 @@ export const VmRow = memo(function VmRow({ id, index, offset, selected, requeste
       className={`grid__row${selected ? ' grid__row--selected' : ''}`}
       style={{ transform: `translateY(${offset}px)` }}
       onClick={() => onSelectOnly(id)}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onOpenMenu(id, event.clientX, event.clientY);
+      }}
     >
       <div role="gridcell" className="grid__cell grid__cell--check">
         <input
