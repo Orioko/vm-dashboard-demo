@@ -4,7 +4,7 @@ A real-time admin UI for **10,000 virtual machines** that stays fast while hundr
 
 It is a companion project for an article about building management interfaces for virtualization and VDI platforms: the kind of UI where the data changes on its own, operations take minutes, and showing a stale "Running" can make an administrator take the wrong decision.
 
-<!-- TODO: add a GIF of the dashboard here -->
+![Selecting virtual machines on a node and powering them on, with live task progress](docs/demo.gif)
 
 ## What it demonstrates
 
